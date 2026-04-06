@@ -33,7 +33,7 @@ Your job:
 - Be neutral and factual — present what the documents say without editorializing.`;
 
 // Helper: search the Epstein files API (Meilisearch)
-async function searchFiles(query: string, limit = 20): Promise<any> {
+async function searchFiles(query: string, limit = 50): Promise<any> {
   const response = await fetch(`${MEILI_HOST}/indexes/epstein_files/search`, {
     method: "POST",
     headers: MEILI_HEADERS,
@@ -160,7 +160,7 @@ async function generateResponse(
 ): Promise<string> {
   // Build document context
   const docContext = documents
-    .slice(0, 15)
+    .slice(0, 100)
     .map((doc: any, i: number) => {
       const parts = [`--- Document ${i + 1} ---`];
       if (doc.efta_id) parts.push(`EFTA ID: ${doc.efta_id}`);
@@ -299,7 +299,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       meta: {
         searchQueries,
         totalDocumentsFound: totalHits,
-        documentsUsed: Math.min(allDocs.length, 15),
+        documentsUsed: Math.min(allDocs.length, 100),
         sources,
         usedWebSearch,
       },
