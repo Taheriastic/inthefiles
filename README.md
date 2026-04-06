@@ -3,6 +3,8 @@
 > AI-powered search and chat interface for the Jeffrey Epstein public court records — 88,000+ documents, flight logs, depositions, and emails.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-inthefiles.vercel.app-black?style=for-the-badge&logo=vercel)](https://inthefiles.vercel.app)
+
+**🔗 https://inthefiles.vercel.app**
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
