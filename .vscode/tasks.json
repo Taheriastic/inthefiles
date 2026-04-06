@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Dev: Start InTheFiles",
+			"type": "shell",
+			"command": "npx concurrently \"cd server && npx tsx watch src/index.ts\" \"cd client && npx vite\"",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

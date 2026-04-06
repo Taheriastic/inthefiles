@@ -1,0 +1,23 @@
+{
+  "name": "inthefiles",
+  "version": "1.0.0",
+  "private": true,
+  "description": "InTheFiles — An AI-powered chatbot for searching the Epstein Files",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build": "npm run build:client && npm run build:server",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "docker:build": "docker build -t inthefiles .",
+    "docker:run": "docker run -p 3001:3001 --name inthefiles --rm inthefiles",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
