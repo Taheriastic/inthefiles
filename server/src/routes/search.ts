@@ -1,10 +1,10 @@
 import { Router, Request, Response } from "express";
 
 const router = Router();
-const MEILI_HOST = "https://epstein.dugganusa.com";
-const MEILI_KEY = "REDACTED";
-const STATS_KEY = "REDACTED";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "REDACTED";
+const MEILI_HOST = process.env.MEILI_HOST || "https://epstein.dugganusa.com";
+const MEILI_KEY = process.env.MEILI_KEY!;
+const STATS_KEY = process.env.STATS_KEY!;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 const MEILI_HEADERS = {
