@@ -4,8 +4,9 @@ const router = Router();
 const MEILI_HOST = process.env.MEILI_HOST || "https://epstein.dugganusa.com";
 const MEILI_KEY = process.env.MEILI_KEY!;
 const STATS_KEY = process.env.STATS_KEY!;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GROQ_API_KEY = process.env.GROQ_API_KEY!;
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 const MEILI_HEADERS = {
   "Content-Type": "application/json",
@@ -27,7 +28,7 @@ Your job:
 - If asked about flight records, list them in a structured table format.
 - If asked about people/connections, explain relationships found in the documents.
 - Always cite which documents your information comes from (use EFTA IDs or source when available).
-- If the primary database documents don't contain enough info, you may also have supplementary context from the DOJ Epstein Library (${DOJ_EPSTEIN_URL}) and other public sources — use those too and clearly mark them as "Source: DOJ / Public Records".
+- If the primary database documents don't contain enough info, you may supplement with your knowledge of public records related to the case — clearly mark these as "Source: Public Records".
 - If you still don't have enough info, say so honestly and suggest what the user could search for instead.
 - Never fabricate information that isn't in the provided documents or public knowledge.
 - Be neutral and factual — present what the documents say without editorializing.`;
@@ -43,79 +44,39 @@ async function searchFiles(query: string, limit = 20): Promise<any> {
   return response.json();
 }
 
-// Helper: Use Gemini with Google Search grounding to find additional public info
-async function searchWebForContext(query: string): Promise<string> {
-  const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: `Search for information about this topic related to the Jeffrey Epstein case from official sources like justice.gov/epstein, court records, and news reports. Be factual and cite your sources.
-
-Topic: ${query}
-
-Provide a factual summary of what you find, with source URLs where possible.`,
-          },
-        ],
-      },
-    ],
-    tools: [
-      {
-        google_search: {},
-      },
-    ],
-    generationConfig: {
-      temperature: 0.3,
-      maxOutputTokens: 2048,
+// Helper: call Groq (OpenAI-compatible)
+async function callGroq(messages: any[], temperature = 0.7, maxTokens = 4096): Promise<string> {
+  const res = await fetch(GROQ_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
     },
-  };
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+    }),
+  });
 
-  try {
-    const res = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      console.error("Web search grounding failed:", res.status);
-      return "";
-    }
-
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    // Also extract grounding sources if available
-    const groundingMeta = data.candidates?.[0]?.groundingMetadata;
-    const sources = groundingMeta?.groundingChunks
-      ?.map((chunk: any) => chunk.web?.uri)
-      .filter(Boolean)
-      ?.slice(0, 5) || [];
-
-    let result = text;
-    if (sources.length > 0) {
-      result += `\n\nWeb Sources:\n${sources.map((s: string) => `- ${s}`).join("\n")}`;
-    }
-
-    return result;
-  } catch (err) {
-    console.error("Web search error:", err);
-    return "";
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Groq API error ${res.status}: ${err}`);
   }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
 }
 
-// Helper: extract search keywords from a conversational query using Gemini
+// Helper: extract search keywords from a conversational query
 async function extractSearchQueries(userMessage: string, chatHistory: any[]): Promise<string[]> {
   const recentContext = chatHistory.slice(-6).map((m: any) => `${m.role}: ${m.content}`).join("\n");
 
-  const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: `Given this chat history and the latest user message, extract 1-3 concise search queries (keywords/names/phrases) to search the Epstein files database. Return ONLY the queries, one per line, no numbering or extra text.
+  const text = await callGroq([
+    {
+      role: "user",
+      content: `Given this chat history and the latest user message, extract 1-3 concise search queries (keywords/names/phrases) to search the Epstein files database. Return ONLY the queries, one per line, no numbering or extra text.
 
 Chat context:
 ${recentContext}
@@ -123,26 +84,9 @@ ${recentContext}
 Latest message: "${userMessage}"
 
 Search queries:`,
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 100,
     },
-  };
+  ], 0.1, 100);
 
-  const res = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) return [userMessage];
-
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || userMessage;
   const queries = text
     .split("\n")
     .map((q: string) => q.trim())
@@ -151,14 +95,12 @@ Search queries:`,
   return queries.length > 0 ? queries.slice(0, 3) : [userMessage];
 }
 
-// Helper: call Gemini with context
+// Helper: generate AI response using document context
 async function generateResponse(
   userMessage: string,
   documents: any[],
-  webContext: string,
   chatHistory: any[]
 ): Promise<string> {
-  // Build document context
   const docContext = documents
     .slice(0, 15)
     .map((doc: any, i: number) => {
@@ -175,70 +117,26 @@ async function generateResponse(
     })
     .join("\n\n");
 
-  // Build supplementary web context section
-  const webSection = webContext
-    ? `\n\n=== SUPPLEMENTARY CONTEXT (from DOJ Epstein Library & public sources) ===\n${webContext}`
-    : "";
-
-  // Build chat history for Gemini (convert to Gemini format)
-  const geminiHistory = chatHistory.slice(-8).map((m: any) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-
-  const contents = [
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...chatHistory.slice(-8).map((m: any) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    })),
     {
       role: "user",
-      parts: [{ text: SYSTEM_PROMPT }],
-    },
-    {
-      role: "model",
-      parts: [
-        {
-          text: "Understood. I'm InTheFiles, ready to analyze Epstein case documents. I'll provide detailed, well-sourced answers using the database documents as my primary source, supplemented by DOJ and public records when needed.",
-        },
-      ],
-    },
-    ...geminiHistory,
-    {
-      role: "user",
-      parts: [
-        {
-          text: `=== PRIMARY SOURCE: Epstein Files Database ===\n\n${docContext || "(No matching documents found in the database)"}\n${webSection}\n\n---\n\nUser's question: ${userMessage}\n\nProvide a detailed, well-formatted response. Prioritize information from the database documents, and supplement with web sources when the database doesn't have enough. Clearly indicate the source of each piece of information.`,
-        },
-      ],
+      content: `=== PRIMARY SOURCE: Epstein Files Database ===\n\n${docContext || "(No matching documents found in the database)"}\n\n---\n\nUser's question: ${userMessage}\n\nProvide a detailed, well-formatted response citing document sources where available.`,
     },
   ];
 
-  const body = {
-    contents,
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 4096,
-    },
-  };
-
-  const res = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("Gemini API error:", errText);
-    throw new Error(`Gemini API error: ${res.status}`);
-  }
-
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response. Please try again.";
+  return callGroq(messages, 0.7, 4096);
 }
 
 // ============================================
 // Routes
 // ============================================
 
-// Smart chat endpoint — searches DB + web + AI response
+// Smart chat endpoint — searches DB + AI response
 router.post("/chat", async (req: Request, res: Response) => {
   try {
     const { message, history } = req.body;
@@ -273,24 +171,14 @@ router.post("/chat", async (req: Request, res: Response) => {
       0
     );
 
-    // Step 4: If DB results are sparse, also search the web (DOJ site + public sources)
-    let webContext = "";
-    let usedWebSearch = false;
     const dbAvailable = searchResults.some((r) => r !== null);
 
-    if (allDocs.length < 5) {
-      console.log("📡 Few DB results — searching web for supplementary info...");
-      webContext = await searchWebForContext(message);
-      usedWebSearch = !!webContext;
-    }
-
-    // Step 5: Generate AI response using all context
-    const aiResponse = await generateResponse(message, allDocs, webContext, history || []);
+    // Step 4: Generate AI response using document context
+    const aiResponse = await generateResponse(message, allDocs, history || []);
 
     const sources: string[] = [];
     if (dbAvailable && allDocs.length > 0) sources.push("Epstein Files Database");
-    if (usedWebSearch) sources.push("DOJ Epstein Library & Public Records");
-    if (sources.length === 0) sources.push("Public Records (Web)");
+    if (sources.length === 0) sources.push("Public Records");
 
     return res.json({
       success: true,
@@ -301,7 +189,6 @@ router.post("/chat", async (req: Request, res: Response) => {
         totalDocumentsFound: totalHits,
         documentsUsed: Math.min(allDocs.length, 15),
         sources,
-        usedWebSearch,
       },
     });
   } catch (error) {
@@ -310,7 +197,7 @@ router.post("/chat", async (req: Request, res: Response) => {
   }
 });
 
-// Raw search endpoint (kept for direct searches)
+// Raw search endpoint
 router.get("/search", async (req: Request, res: Response) => {
   try {
     const query = req.query.q as string;
